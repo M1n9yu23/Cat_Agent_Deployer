@@ -37,6 +37,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.gms.play.services.location)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

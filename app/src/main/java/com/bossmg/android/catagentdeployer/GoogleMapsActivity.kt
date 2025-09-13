@@ -1,26 +1,41 @@
 package com.bossmg.android.catagentdeployer
 
 import android.Manifest.permission.ACCESS_FINE_LOCATION
+import android.annotation.SuppressLint
+import android.graphics.Canvas
+import android.graphics.Color
+import android.location.Location
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker.PERMISSION_GRANTED
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.drawable.DrawableCompat
 import com.bossmg.android.catagentdeployer.databinding.ActivityGoogleMapsBinding
+import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
+import com.google.android.gms.maps.model.BitmapDescriptor
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 
 class GoogleMapsActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var requestPermissionLauncher: ActivityResultLauncher<String>
 
+    private val fusedLocationProviderClient by lazy {
+        LocationServices.getFusedLocationProviderClient(this)
+    }
+
     private lateinit var mMap: GoogleMap
+    private var marker: Marker? = null
     private lateinit var binding: ActivityGoogleMapsBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,7 +70,11 @@ class GoogleMapsActivity : AppCompatActivity(), OnMapReadyCallback {
      * installed Google Play services and returned to the app.
      */
     override fun onMapReady(googleMap: GoogleMap) {
-        mMap = googleMap
+        mMap = googleMap.apply {
+            setOnMapClickListener { latLng ->
+                addOrMoveSelectedPositionMarker(latLng)
+            }
+        }
         when {
             hasLocationPermission() -> getLastLocation()
             shouldShowRequestPermissionRationale(ACCESS_FINE_LOCATION) -> {
@@ -68,8 +87,60 @@ class GoogleMapsActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun getLastLocation() {
-        Log.d(TAG, "getLastLocation() called.")
+        fusedLocationProviderClient.lastLocation
+            .addOnSuccessListener { location: Location? ->
+                location?.let {
+                    val userLocation = LatLng(
+                        location.latitude, location.longitude
+                    )
+                    updateMapLocation(userLocation)
+                    addMarkerAtLocation(userLocation, "You")
+                }
+            }
+    }
+
+    private fun updateMapLocation(location: LatLng) {
+        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(location, 7f))
+    }
+
+    private fun addMarkerAtLocation(location: LatLng, title: String, markerIcon: BitmapDescriptor? = null) =
+        mMap.addMarker(MarkerOptions().title(title).position(location))
+            .apply {
+                markerIcon?.let { this?.setIcon(it) }
+            }
+
+
+    private fun getBitmapDescriptorFromVector(@DrawableRes vectorDrawableResId: Int): BitmapDescriptor? {
+        val bitmap =
+            ContextCompat.getDrawable(this, vectorDrawableResId)?.let { vectorDrawable ->
+                vectorDrawable
+                    .setBounds(0, 0, vectorDrawable.intrinsicWidth, vectorDrawable.intrinsicHeight)
+
+                val drawableWithTint = DrawableCompat.wrap(vectorDrawable)
+                DrawableCompat.setTint(drawableWithTint, Color.RED)
+
+                val bitmap = createBitmap(vectorDrawable.intrinsicWidth, vectorDrawable.intrinsicHeight)
+                val canvas = Canvas(bitmap)
+                drawableWithTint.draw(canvas)
+                bitmap
+            } ?: return null
+        return BitmapDescriptorFactory.fromBitmap(bitmap).also {
+            bitmap.recycle()
+        }
+    }
+
+    private fun addOrMoveSelectedPositionMarker(latLng: LatLng) {
+        if (marker == null) {
+            marker = addMarkerAtLocation(
+                latLng, "Deploy here", getBitmapDescriptorFromVector(R.drawable.tartget_icon)
+            )
+        } else {
+            marker?.apply {
+                position = latLng
+            }
+        }
     }
 
     private fun showPermissionRationale(positiveAction: () -> Unit) {
